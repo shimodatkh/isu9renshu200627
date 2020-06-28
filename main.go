@@ -1,24 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"github.com/jmoiron/sqlx"
+	"github.com/najeira/measure"
 	goji "goji.io"
 	"goji.io/pat"
 	"golang.org/x/crypto/bcrypt"
@@ -346,6 +351,10 @@ func main() {
 	mux.HandleFunc(pat.Post("/login"), postLogin)
 	mux.HandleFunc(pat.Post("/register"), postRegister)
 	mux.HandleFunc(pat.Get("/reports.json"), getReports)
+
+	// najeira/measure
+	mux.HandleFunc(pat.Get("/stats"), getStats)
+
 	// Frontend
 	mux.HandleFunc(pat.Get("/"), getIndex)
 	mux.HandleFunc(pat.Get("/login"), getIndex)
@@ -366,12 +375,22 @@ func main() {
 }
 
 func getSession(r *http.Request) *sessions.Session {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	session, _ := store.Get(r, sessionName)
 
 	return session
 }
 
 func getCSRFToken(r *http.Request) string {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	session := getSession(r)
 
 	csrfToken, ok := session.Values["csrf_token"]
@@ -383,6 +402,11 @@ func getCSRFToken(r *http.Request) string {
 }
 
 func getUser(r *http.Request) (user User, errCode int, errMsg string) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	session := getSession(r)
 	userID, ok := session.Values["user_id"]
 	if !ok {
@@ -402,6 +426,11 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 }
 
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	user := User{}
 	err = sqlx.Get(q, &user, "SELECT * FROM `users` WHERE `id` = ?", userID)
 	if err != nil {
@@ -414,6 +443,11 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
 	if category.ParentID != 0 {
 		parentCategory, err := getCategoryByID(q, category.ParentID)
@@ -426,6 +460,11 @@ func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err err
 }
 
 func getConfigByName(ctx context.Context, name string) (string, error) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	config := Config{}
 	err := dbx.GetContext(ctx, &config, "SELECT * FROM `configs` WHERE `name` = ?", name)
 	if err == sql.ErrNoRows {
@@ -457,10 +496,20 @@ func getShipmentServiceURL(ctx context.Context) string {
 }
 
 func getIndex(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	templates.ExecuteTemplate(w, "index.html", struct{}{})
 }
 
 func postInitialize(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	ri := reqInitialize{}
 
 	err := json.NewDecoder(r.Body).Decode(&ri)
@@ -511,6 +560,13 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 }
 
 func getNewItems(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+	// najeira/measure part 先頭
+	m := measure.Start(funcName + ": part1")
+
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var itemID int64
@@ -564,6 +620,9 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part2")
 
 	userIdUnique := make(map[int64]struct{})
 	var userIds []interface{}
@@ -632,6 +691,10 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part3")
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
 		seller, ok := users[item.SellerID]
@@ -671,9 +734,21 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(rni)
+
+	// najeira/measure part 末尾
+	m.Stop()
+
 }
 
 func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
+	// najeira/measure part 先頭
+	m := measure.Start(funcName + ": part1")
+
 	rootCategoryIDStr := pat.Param(r, "root_category_id")
 	rootCategoryID, err := strconv.Atoi(rootCategoryIDStr)
 	if err != nil || rootCategoryID <= 0 {
@@ -686,6 +761,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusNotFound, "category not found")
 		return
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part2")
 
 	var categoryIDs []int
 	err = dbx.SelectContext(r.Context(), &categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
@@ -750,6 +829,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part3")
 
 	items := []Item{}
 	err = dbx.SelectContext(r.Context(), &items, inQuery, inArgs...)
@@ -827,6 +910,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part4")
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
 		seller, ok := users[item.SellerID]
@@ -853,6 +940,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part5")
+
 	hasNext := false
 	if len(itemSimples) > ItemsPerPage {
 		hasNext = true
@@ -869,9 +960,19 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(rni)
 
+	// najeira/measure part 末尾
+	m.Stop()
+
 }
 
 func getUserItems(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+	// najeira/measure part 先頭
+	m := measure.Start(funcName + ": part1")
+
 	userIDStr := pat.Param(r, "user_id")
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
 	if err != nil || userID <= 0 {
@@ -942,6 +1043,10 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part2")
+
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
 		category, err := getCategoryByID(dbx, item.CategoryID)
@@ -963,6 +1068,10 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part3")
+
 	hasNext := false
 	if len(itemSimples) > ItemsPerPage {
 		hasNext = true
@@ -977,15 +1086,30 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(rui)
+
+	// najeira/measure part 末尾
+	m.Stop()
+
 }
 
 func getTransactions(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure 関数冒頭
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
+	// najeira/measure part 先頭
+	m := measure.Start(funcName + ": part1")
 
 	user, errCode, errMsg := getUser(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
 		return
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part2")
 
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
@@ -1008,6 +1132,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part3")
 
 	tx := dbx.MustBegin()
 	items := []Item{}
@@ -1053,6 +1181,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part4")
 
 	itemIDs := make([]interface{}, 0, len(items))
 	userIdUnique := make(map[int64]struct{})
@@ -1154,6 +1286,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part5")
+
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
 		seller, ok := users[item.SellerID]
@@ -1234,6 +1370,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	tx.Commit()
 
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ": part6")
+
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
 		hasNext = true
@@ -1248,9 +1388,17 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(rts)
 
+	// najeira/measure part 末尾
+	m.Stop()
+
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	itemIDStr := pat.Param(r, "item_id")
 	itemID, err := strconv.ParseInt(itemIDStr, 10, 64)
 	if err != nil || itemID <= 0 {
@@ -1349,6 +1497,11 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func postItemEdit(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	rie := reqItemEdit{}
 	err := json.NewDecoder(r.Body).Decode(&rie)
 	if err != nil {
@@ -1444,6 +1597,11 @@ func postItemEdit(w http.ResponseWriter, r *http.Request) {
 }
 
 func getQRCode(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	transactionEvidenceIDStr := pat.Param(r, "transaction_evidence_id")
 	transactionEvidenceID, err := strconv.ParseInt(transactionEvidenceIDStr, 10, 64)
 	if err != nil || transactionEvidenceID <= 0 {
@@ -1500,6 +1658,11 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func postBuy(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	rb := reqBuy{}
 
 	err := json.NewDecoder(r.Body).Decode(&rb)
@@ -1689,6 +1852,11 @@ func postBuy(w http.ResponseWriter, r *http.Request) {
 }
 
 func postShip(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	reqps := reqPostShip{}
 
 	err := json.NewDecoder(r.Body).Decode(&reqps)
@@ -1820,6 +1988,11 @@ func postShip(w http.ResponseWriter, r *http.Request) {
 }
 
 func postShipDone(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	reqpsd := reqPostShipDone{}
 
 	err := json.NewDecoder(r.Body).Decode(&reqpsd)
@@ -1966,6 +2139,11 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 }
 
 func postComplete(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	reqpc := reqPostComplete{}
 
 	err := json.NewDecoder(r.Body).Decode(&reqpc)
@@ -2119,6 +2297,11 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func postSell(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	csrfToken := r.FormValue("csrf_token")
 	name := r.FormValue("name")
 	description := r.FormValue("description")
@@ -2260,6 +2443,11 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 }
 
 func secureRandomStr(b int) string {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	k := make([]byte, b)
 	if _, err := crand.Read(k); err != nil {
 		panic(err)
@@ -2268,6 +2456,11 @@ func secureRandomStr(b int) string {
 }
 
 func postBump(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	rb := reqBump{}
 	err := json.NewDecoder(r.Body).Decode(&rb)
 	if err != nil {
@@ -2374,6 +2567,11 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 }
 
 func getSettings(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	csrfToken := getCSRFToken(r)
 
 	user, _, errMsg := getUser(r)
@@ -2401,6 +2599,11 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func postLogin(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	rl := reqLogin{}
 	err := json.NewDecoder(r.Body).Decode(&rl)
 	if err != nil {
@@ -2458,6 +2661,11 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func postRegister(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	rr := reqRegister{}
 	err := json.NewDecoder(r.Body).Decode(&rr)
 	if err != nil {
@@ -2524,6 +2732,11 @@ func postRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func getReports(w http.ResponseWriter, r *http.Request) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	transactionEvidences := make([]TransactionEvidence, 0)
 	err := dbx.SelectContext(r.Context(), &transactionEvidences, "SELECT * FROM `transaction_evidences` WHERE `id` > 15007")
 	if err != nil {
@@ -2536,7 +2749,58 @@ func getReports(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(transactionEvidences)
 }
 
+type MyLog struct {
+	Key   string
+	Count int64
+	Sum   float64
+	Min   float64
+	Max   float64
+	Avg   float64
+	Rate  float64
+	P95   float64
+}
+
+func getStats(w http.ResponseWriter, r *http.Request) {
+	stats := measure.GetStats()
+	stats.SortDesc("sum")
+
+	var logs []MyLog
+	for _, s := range stats {
+		log := MyLog{
+			Key:   s.Key,
+			Count: s.Count,
+			Sum:   math.Round(s.Sum),
+			Min:   (math.Round(s.Min*100) / 100),
+			Max:   (math.Round(s.Max*100) / 100),
+			Avg:   (math.Round(s.Avg*100) / 100),
+			Rate:  (math.Round(s.Rate*100) / 100),
+			P95:   (math.Round(s.P95*100) / 100),
+		}
+		logs = append(logs, log)
+	}
+
+	body := bytes.NewBufferString("key,count,sum,min,max,avg,rate,p95\n")
+	for _, s := range logs {
+		body.WriteString(fmt.Sprintf("%s,%d,%f,%f,%f,%f,%f,%f\n",
+			s.Key, s.Count, s.Sum, s.Min, s.Max, s.Avg, s.Rate, s.P95))
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=UTF-8")
+	t := time.Now().Format("20060102_150405")
+	disp := "attachment; filename=\"" + t + "_log.csv\""
+	w.Header().Set("Content-Disposition", disp)
+	_, err := io.Copy(w, body)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func outputErrorMsg(w http.ResponseWriter, status int, msg string) {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 
 	w.WriteHeader(status)
@@ -2547,5 +2811,10 @@ func outputErrorMsg(w http.ResponseWriter, status int, msg string) {
 }
 
 func getImageURL(imageName string) string {
+	// najeira/measure
+	pt, _, _, _ := runtime.Caller(0)
+	funcName := runtime.FuncForPC(pt).Name()
+	defer measure.Start(funcName).Stop()
+
 	return fmt.Sprintf("/upload/%s", imageName)
 }
