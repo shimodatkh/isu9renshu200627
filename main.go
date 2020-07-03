@@ -565,7 +565,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 	funcName := runtime.FuncForPC(pt).Name()
 	defer measure.Start(funcName).Stop()
 	// najeira/measure part 先頭
-	m := measure.Start(funcName + ": part1")
+	m := measure.Start(funcName + ":part1")
 
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
@@ -622,7 +622,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 	}
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part2")
+	m = measure.Start(funcName + ":part2")
 
 	userIdUnique := make(map[int64]struct{})
 	var userIds []interface{}
@@ -693,7 +693,7 @@ func getNewItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part3")
+	m = measure.Start(funcName + ":part3")
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
@@ -747,7 +747,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	defer measure.Start(funcName).Stop()
 
 	// najeira/measure part 先頭
-	m := measure.Start(funcName + ": part1")
+	m := measure.Start(funcName + ":part1")
 
 	rootCategoryIDStr := pat.Param(r, "root_category_id")
 	rootCategoryID, err := strconv.Atoi(rootCategoryIDStr)
@@ -764,7 +764,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part2")
+	m = measure.Start(funcName + ":part2")
 
 	var categoryIDs []int
 	err = dbx.SelectContext(r.Context(), &categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
@@ -832,7 +832,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part3")
+	m = measure.Start(funcName + ":part3")
 
 	items := []Item{}
 	err = dbx.SelectContext(r.Context(), &items, inQuery, inArgs...)
@@ -912,7 +912,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part4")
+	m = measure.Start(funcName + ":part4")
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
@@ -942,7 +942,7 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part5")
+	m = measure.Start(funcName + ":part5")
 
 	hasNext := false
 	if len(itemSimples) > ItemsPerPage {
@@ -971,7 +971,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 	funcName := runtime.FuncForPC(pt).Name()
 	defer measure.Start(funcName).Stop()
 	// najeira/measure part 先頭
-	m := measure.Start(funcName + ": part1")
+	m := measure.Start(funcName + ":part1")
 
 	userIDStr := pat.Param(r, "user_id")
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
@@ -1045,7 +1045,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part2")
+	m = measure.Start(funcName + ":part2")
 
 	itemSimples := []ItemSimple{}
 	for _, item := range items {
@@ -1070,7 +1070,7 @@ func getUserItems(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part3")
+	m = measure.Start(funcName + ":part3")
 
 	hasNext := false
 	if len(itemSimples) > ItemsPerPage {
@@ -1099,7 +1099,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	defer measure.Start(funcName).Stop()
 
 	// najeira/measure part 先頭
-	m := measure.Start(funcName + ": part1")
+	m := measure.Start(funcName + ":part1")
 
 	user, errCode, errMsg := getUser(r)
 	if errMsg != "" {
@@ -1109,7 +1109,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part2")
+	m = measure.Start(funcName + ":part2")
 
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
@@ -1135,7 +1135,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part3")
+	m = measure.Start(funcName + ":part3")
 
 	tx := dbx.MustBegin()
 	items := []Item{}
@@ -1184,7 +1184,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part4")
+	m = measure.Start(funcName + ":part4")
 
 	itemIDs := make([]interface{}, 0, len(items))
 	userIdUnique := make(map[int64]struct{})
@@ -1288,7 +1288,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part5")
+	m = measure.Start(funcName + ":part5")
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
@@ -1372,7 +1372,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 	// najeira/measure part 中間
 	m.Stop()
-	m = measure.Start(funcName + ": part6")
+	m = measure.Start(funcName + ":part6")
 
 	hasNext := false
 	if len(itemDetails) > TransactionsPerPage {
@@ -2778,11 +2778,12 @@ func getStats(w http.ResponseWriter, r *http.Request) {
 		}
 		logs = append(logs, log)
 	}
-
-	body := bytes.NewBufferString("key,count,sum,min,max,avg,rate,p95\n")
+	header := "key                                               ,count   ,sum       ,min       ,max       ,avg       ,rate ,p95\n"
+	body := bytes.NewBufferString(header)
 	for _, s := range logs {
-		body.WriteString(fmt.Sprintf("%s,%d,%f,%f,%f,%f,%f,%f\n",
-			s.Key, s.Count, s.Sum, s.Min, s.Max, s.Avg, s.Rate, s.P95))
+		sumint := int(s.Sum)
+		body.WriteString(fmt.Sprintf("%50s,%8d,%10d,%10.2f,%10.2f,%10.2f,%5.2f,%10.2f\n",
+			s.Key, s.Count, sumint, s.Min, s.Max, s.Avg, s.Rate, s.P95))
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=UTF-8")
