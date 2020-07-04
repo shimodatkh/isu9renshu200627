@@ -152,6 +152,8 @@ type TransactionEvidence struct {
 	ItemRootCategoryID int       `json:"item_root_category_id" db:"item_root_category_id"`
 	CreatedAt          time.Time `json:"-" db:"created_at"`
 	UpdatedAt          time.Time `json:"-" db:"updated_at"`
+
+	ReserveID string `json:"-" db:"reserve_id"`
 }
 
 type Shipping struct {
@@ -1142,14 +1144,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	if itemID > 0 && createdAt > 0 {
 		// paging
 		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) AND (`created_at` < ?  OR (`created_at` <= ? AND `id` < ?)) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM ((SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN ('on_sale','trading','sold_out','cancel','stop')) UNION (SELECT * FROM `items` WHERE `buyer_id` = ? AND `status` IN ('on_sale','trading','sold_out','cancel','stop'))) as a WHERE a.`created_at` < ? OR (a.`created_at` <= ? AND a.`id` < ?) ORDER BY a.`created_at` DESC, a.`id` DESC LIMIT ?",
 			user.ID,
 			user.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
-			ItemStatusCancel,
-			ItemStatusStop,
 			time.Unix(createdAt, 0),
 			time.Unix(createdAt, 0),
 			itemID,
@@ -1164,14 +1161,9 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 1st page
 		err := tx.Select(&items,
-			"SELECT * FROM `items` WHERE (`seller_id` = ? OR `buyer_id` = ?) AND `status` IN (?,?,?,?,?) ORDER BY `created_at` DESC, `id` DESC LIMIT ?",
+			"SELECT * FROM (SELECT * FROM `items` WHERE `seller_id` = ? AND `status` IN ('on_sale','trading','sold_out','cancel','stop') UNION SELECT * FROM `items` WHERE `buyer_id` = ? AND `status` IN ('on_sale','trading','sold_out','cancel','stop')) as a ORDER BY a.`created_at` DESC, a.`id` DESC LIMIT ?",
 			user.ID,
 			user.ID,
-			ItemStatusOnSale,
-			ItemStatusTrading,
-			ItemStatusSoldOut,
-			ItemStatusCancel,
-			ItemStatusStop,
 			TransactionsPerPage+1,
 		)
 		if err != nil {
@@ -1265,7 +1257,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	var transactionEvidences map[int64]TransactionEvidence
 	if len(itemIDs) > 0 {
-		query, args, err := sqlx.In("SELECT * FROM `transaction_evidences` WHERE `item_id` IN (?)", itemIDs)
+		query, args, err := sqlx.In("SELECT c.id,c.item_id,c.status,s.reserve_id FROM transaction_evidences c join shippings s on s.transaction_evidence_id = c.id where c.item_id in (?)", itemIDs)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1289,6 +1281,19 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// najeira/measure part 中間
 	m.Stop()
 	m = measure.Start(funcName + ":part5")
+
+	// var wg sync.WaitGroup
+	// var shipmentStatues sync.Map
+	// var concurrentError atomic.Value
+	// wg.Add(len(transactionEvidences))
+	// for _, t := range transactionEvidences {
+	// 	go func(t TransactionEvidence){
+	// 		defer wg.Done()
+	// 		if t.ReserveID == "" {
+
+	// 		}
+	// 	}
+	// }
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
