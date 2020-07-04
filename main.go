@@ -18,8 +18,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -155,7 +153,7 @@ type TransactionEvidence struct {
 	CreatedAt          time.Time `json:"-" db:"created_at"`
 	UpdatedAt          time.Time `json:"-" db:"updated_at"`
 
-	ReserveID string `json:"-" db:"reserve_id"`
+	ShippingStatus string `json:"-" db:"shipping_status"`
 }
 
 type Shipping struct {
@@ -1271,7 +1269,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// ★★★★★★ 取得した商品一覧に関連する取引履歴一覧を取得する
 	var transactionEvidences map[int64]TransactionEvidence
 	if len(itemIDs) > 0 {
-		query, args, err := sqlx.In("SELECT c.id,c.item_id,c.status,s.reserve_id FROM transaction_evidences c join shippings s on s.transaction_evidence_id = c.id where c.item_id in (?)", itemIDs)
+		query, args, err := sqlx.In("SELECT c.id,c.item_id,c.status,s.status as shipping_status FROM transaction_evidences c join shippings s on s.transaction_evidence_id = c.id where c.item_id in (?)", itemIDs)
 		if err != nil {
 			log.Print(err)
 			outputErrorMsg(w, http.StatusInternalServerError, "db error")
@@ -1295,40 +1293,6 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// najeira/measure part 中間
 	m.Stop()
 	m = measure.Start(funcName + ":part5")
-
-	// ★★★★★ APIShipmentを呼び、tranごとの予約番号からステータスを取得する
-	var wg sync.WaitGroup
-	var shipmentStatuses sync.Map
-	var concurrentError atomic.Value
-	wg.Add(len(transactionEvidences))
-	for _, t := range transactionEvidences {
-		go func(t TransactionEvidence) {
-			defer wg.Done()
-			if t.ReserveID == "" {
-				return
-			}
-			ssr, err := APIShipmentStatus(getShipmentServiceURL(r.Context()), &APIShipmentStatusReq{
-				ReserveID: t.ReserveID,
-			})
-			if err != nil {
-				concurrentError.Store(err)
-				return
-			}
-			shipmentStatuses.Store(t.ItemID, ssr)
-		}(t)
-	}
-	wg.Wait()
-	cerr := concurrentError.Load()
-	if cerr != nil {
-		log.Print(cerr)
-		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-		tx.Rollback()
-		return
-	}
-
-	// najeira/measure part 中間
-	m.Stop()
-	m = measure.Start(funcName + ":part5.5")
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
@@ -1378,15 +1342,14 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		transactionEvidence, ok := transactionEvidences[item.ID]
 
 		if ok {
-			ssr, ok := shipmentStatuses.Load(item.ID)
-			if !ok {
+			if transactionEvidence.ShippingStatus == "" {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				tx.Rollback()
 				return
 			}
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.(*APIShipmentStatusRes).Status
+			itemDetail.ShippingStatus = transactionEvidence.ShippingStatus
 		}
 
 		itemDetails = append(itemDetails, itemDetail)
