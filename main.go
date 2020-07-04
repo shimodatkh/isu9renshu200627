@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -1282,18 +1284,34 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	m.Stop()
 	m = measure.Start(funcName + ":part5")
 
-	// var wg sync.WaitGroup
-	// var shipmentStatues sync.Map
-	// var concurrentError atomic.Value
-	// wg.Add(len(transactionEvidences))
-	// for _, t := range transactionEvidences {
-	// 	go func(t TransactionEvidence){
-	// 		defer wg.Done()
-	// 		if t.ReserveID == "" {
-
-	// 		}
-	// 	}
-	// }
+	var wg sync.WaitGroup
+	var shipmentStatuses sync.Map
+	var concurrentError atomic.Value
+	wg.Add(len(transactionEvidences))
+	for _, t := range transactionEvidences {
+		go func(t TransactionEvidence) {
+			defer wg.Done()
+			if t.ReserveID == "" {
+				return
+			}
+			ssr, err := APIShipmentStatus(getShipmentServiceURL(r.Context()), &APIShipmentStatusReq{
+				ReserveID: t.ReserveID,
+			})
+			if err != nil {
+				concurrentError.Store(err)
+				return
+			}
+			shipmentStatuses.Store(t.ItemID, ssr)
+		}(t)
+	}
+	wg.Wait()
+	cerr := concurrentError.Load()
+	if cerr != nil {
+		log.Print(cerr)
+		outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
+		tx.Rollback()
+		return
+	}
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
@@ -1342,33 +1360,16 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 
 		transactionEvidence, ok := transactionEvidences[item.ID]
 
-		if transactionEvidence.ID > 0 {
-			shipping := Shipping{}
-			err = tx.Get(&shipping, "SELECT * FROM `shippings` WHERE `transaction_evidence_id` = ?", transactionEvidence.ID)
-			if err == sql.ErrNoRows {
+		if ok {
+			ssr, ok := shipmentStatuses.Load(item.ID)
+			if !ok {
 				outputErrorMsg(w, http.StatusNotFound, "shipping not found")
 				tx.Rollback()
 				return
 			}
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "db error")
-				tx.Rollback()
-				return
-			}
-			ssr, err := APIShipmentStatus(getShipmentServiceURL(r.Context()), &APIShipmentStatusReq{
-				ReserveID: shipping.ReserveID,
-			})
-			if err != nil {
-				log.Print(err)
-				outputErrorMsg(w, http.StatusInternalServerError, "failed to request to shipment service")
-				tx.Rollback()
-				return
-			}
-
 			itemDetail.TransactionEvidenceID = transactionEvidence.ID
 			itemDetail.TransactionEvidenceStatus = transactionEvidence.Status
-			itemDetail.ShippingStatus = ssr.Status
+			itemDetail.ShippingStatus = ssr.(*APIShipmentStatusRes).Status
 		}
 
 		itemDetails = append(itemDetails, itemDetail)
