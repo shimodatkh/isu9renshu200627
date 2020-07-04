@@ -1105,6 +1105,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	// najeira/measure part 先頭
 	m := measure.Start(funcName + ":part1")
 
+	// ★★★★★★ ユーザ情報を取得する
 	user, errCode, errMsg := getUser(r)
 	if errMsg != "" {
 		outputErrorMsg(w, errCode, errMsg)
@@ -1115,6 +1116,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	m.Stop()
 	m = measure.Start(funcName + ":part2")
 
+	// ★★★★★★ リクエストのItemIdの入力チェック
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var err error
@@ -1127,6 +1129,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ★★★★★★ リクエストのcreated_atの入力チェック
 	createdAtStr := query.Get("created_at")
 	var createdAt int64
 	if createdAtStr != "" {
@@ -1141,6 +1144,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	m.Stop()
 	m = measure.Start(funcName + ":part3")
 
+	// ★★★★★★ ユーザが出品もしくは購入した商品一覧をページングで取得する
+	// ★★★★★★ 初回リクエストはItemId=0なのでは？
 	tx := dbx.MustBegin()
 	items := []Item{}
 	if itemID > 0 && createdAt > 0 {
@@ -1180,6 +1185,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	m.Stop()
 	m = measure.Start(funcName + ":part4")
 
+	// N+1解消のためのデータ群
 	itemIDs := make([]interface{}, 0, len(items))
 	userIdUnique := make(map[int64]struct{})
 	var userIds []interface{}
@@ -1203,6 +1209,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			categoryIdsUnique[catID] = struct{}{}
 		}
 	}
+
+	// ★★★★★★ 取得した商品一覧に関連するユーザ一覧を取得する
 	var users map[int64]UserSimple
 	if len(userIds) > 0 {
 		query, args, err := sqlx.In("SELECT * FROM `users` WHERE `id` IN (?)", userIds)
@@ -1229,6 +1237,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// ★★★★★★ 取得した商品一覧に関連するカテゴリ一覧を取得する
 	var categories map[int]Category
 	if len(categoryIds) > 0 {
 		query, args, err := sqlx.In("SELECT * FROM `categories` WHERE `id` IN (?)", categoryIds)
@@ -1257,6 +1267,8 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			categories[c.ID] = c
 		}
 	}
+
+	// ★★★★★★ 取得した商品一覧に関連する取引履歴一覧を取得する
 	var transactionEvidences map[int64]TransactionEvidence
 	if len(itemIDs) > 0 {
 		query, args, err := sqlx.In("SELECT c.id,c.item_id,c.status,s.reserve_id FROM transaction_evidences c join shippings s on s.transaction_evidence_id = c.id where c.item_id in (?)", itemIDs)
@@ -1284,6 +1296,7 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 	m.Stop()
 	m = measure.Start(funcName + ":part5")
 
+	// ★★★★★ APIShipmentを呼び、tranごとの予約番号からステータスを取得する
 	var wg sync.WaitGroup
 	var shipmentStatuses sync.Map
 	var concurrentError atomic.Value
@@ -1312,6 +1325,10 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 		tx.Rollback()
 		return
 	}
+
+	// najeira/measure part 中間
+	m.Stop()
+	m = measure.Start(funcName + ":part5.5")
 
 	itemDetails := []ItemDetail{}
 	for _, item := range items {
